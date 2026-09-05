@@ -20,13 +20,39 @@ Use markdown formatting when appropriate (bold for emphasis, bullet points for l
 Keep responses focused and actionable.`
 
 // Read API key from environment — set in .env file or Vercel env vars
-const ENV_API_KEY = import.meta.env.VITE_GEMINI_API_KEY
+const ENV_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY
 
 export async function sendMessage(messages) {
+  // First, try serverless endpoint /api/chat (keeps API key completely hidden on Vercel backend)
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages }),
+    })
+
+    if (res.ok) {
+      const data = await res.json()
+      if (data.text) return data.text
+      if (data.error) throw new Error(data.error)
+    } else {
+      const errorData = await res.json().catch(() => ({}))
+      if (errorData.error && !errorData.error.includes('404')) {
+        throw new Error(errorData.error)
+      }
+    }
+  } catch (err) {
+    // If error is from Vercel API function directly, rethrow it unless it's local dev 404 fallback
+    if (err.message && !err.message.includes('Failed to fetch') && !err.message.includes('404')) {
+      console.warn('Serverless API call warning:', err.message)
+    }
+  }
+
+  // Fallback for local development or direct client calls
   const apiKey = ENV_API_KEY
 
   if (!apiKey || apiKey === 'your_gemini_api_key_here') {
-    throw new Error('Gemini API key is not configured. Please set VITE_GEMINI_API_KEY in your environment.')
+    throw new Error('Gemini API key is not configured. Please set GEMINI_API_KEY in your Vercel environment variables.')
   }
 
   const { GoogleGenerativeAI } = await import('@google/generative-ai')
